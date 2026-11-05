@@ -1,12 +1,21 @@
 # 가상환경
 .venv/
 
-# 비밀 정보 (토큰)
+# 비밀 정보 (토큰) — 절대 커밋 금지
 금프2 토큰.txt
 *토큰*.txt
 .env
+.env.*
+!.env.example
+secrets/
 
 # Python / Jupyter
 __pycache__/
 *.pyc
 .ipynb_checkpoints/
+
+# 봇 런타임 산출물
+logs/*.jsonl
+logs/*.log
+state/*.json
+.DS_Store
