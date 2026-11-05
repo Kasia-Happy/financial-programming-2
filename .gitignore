@@ -1,11 +1,26 @@
-# 비밀 정보 (API 키 등)
+# 가상환경
+.venv/
+
+# 비밀 정보 (토큰) — 절대 커밋 금지
+금프2 토큰.txt
+*토큰*.txt
 .env
+.env.*
+!.env.example
+secrets/
 
 # 데이터·결과 파일 (용량이 커서 따로 공유)
+# (efficient_frontier.png / efficient_frontier_weights.csv 는 이미 저장소에 올라가 있어 계속 추적됨)
 *.csv
 *.png
 
-# macOS / Jupyter / Python
+# macOS / Python / Jupyter
 .DS_Store
-.ipynb_checkpoints/
 __pycache__/
+*.pyc
+.ipynb_checkpoints/
+
+# 봇 런타임 산출물
+logs/*.jsonl
+logs/*.log
+state/*.json
