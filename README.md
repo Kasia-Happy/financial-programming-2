@@ -70,8 +70,9 @@ cp .env.example .env    # lazzy_token 채우기
 ### 사용
 
 ```bash
-.venv/bin/python scripts/status.py     # 현재 상태
-.venv/bin/python scripts/selftest.py   # 가드 검증 (20개 체크)
+.venv/bin/python scripts/status.py        # 현재 상태
+.venv/bin/python scripts/selftest.py      # 가드 검증 (20개 체크)
+.venv/bin/python scripts/verify_costs.py  # 비용 상수 ↔ 서버 get_rules 대조
 ```
 
 ### 안전장치 (bot/config.py)
@@ -129,15 +130,26 @@ cp .env.example .env    # lazzy_token 채우기
 pip install pandas numpy scipy matplotlib yfinance requests python-calamine jupyter
 ```
 
-### 2. 경로 수정
-노트북 첫 부분의 경로가 작성자 컴퓨터 기준 절대경로로 되어 있습니다. 실행 전에 본인 컴퓨터의 프로젝트 폴더 경로로 바꿔 주세요.
-```python
-Path("/Users/kasia/Desktop/학교/26-2/금프2/프로젝트")  # → 본인 경로로 수정
+### 2. 데이터 폴더 지정 (환경변수)
+노트북 경로는 환경변수로 뺐습니다. 하드코딩된 절대경로는 없습니다.
+
+```bash
+export FP2_PROJECT_DIR=/path/to/프로젝트        # CSV·결과물 폴더 (기본: 노트북이 있는 폴더)
+export FP2_DATAGUIDE_DIR=/Volumes/USB_128GB/DataGuide  # 코스피 원본 (DataGuide USB)
 ```
+
+둘 다 생략하면 `FP2_PROJECT_DIR`은 현재 폴더가 되고, DataGuide 경로는 기존 USB 경로를 씁니다.
 
 ### 3. 실행 순서
 1. 데이터 수집 노트북 실행 (순서 무관)
 2. 백테스트 노트북 실행
+
+### 4. 비용 상수 점검 (백테스트 전)
+```bash
+.venv/bin/python scripts/verify_costs.py
+```
+노트북의 `COST`·`FX_COST`와 `bot/config.py`를 서버 `get_rules` 실측값과 대조합니다.
+**2026-11-06 확인: 전부 일치.** 수업 중 서버 규칙이 바뀌면 이걸로 바로 잡힙니다.
 
 ## 데이터
 CSV와 PNG 파일은 용량이 커서 GitHub에 올리지 않습니다 (`.gitignore`로 제외).
@@ -191,6 +203,6 @@ CSV와 PNG 파일은 용량이 커서 GitHub에 올리지 않습니다 (`.gitign
 - [ ] 로깅: 무엇을 왜 했는지 기록 (회고용)
 - [ ] 리스크 한도를 코드에 고정 (한 종목 최대 비중 등)
 - [ ] 서버 끊김·오래된 시세에서 멈췄다가 이어서 돌기
-- [ ] 백테스트 매매 수수료(`COST`)를 `get_rules`의 실제 값으로 맞추기
+- [x] 백테스트 매매 수수료(`COST`)를 `get_rules`의 실제 값으로 맞추기 — **이미 일치했음**, `scripts/verify_costs.py`로 자동 검증
 - [ ] [양방향_전략_보완점.md](양방향_전략_보완점.md)의 보완점 반영
 - [ ] 성적 구간(마지막 한 달) 시작일 공지 확인
