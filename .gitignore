@@ -1,0 +1,11 @@
+# 비밀 정보 (API 키 등)
+.env
+
+# 데이터·결과 파일 (용량이 커서 따로 공유)
+*.csv
+*.png
+
+# macOS / Jupyter / Python
+.DS_Store
+.ipynb_checkpoints/
+__pycache__/
