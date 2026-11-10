@@ -75,21 +75,37 @@ def fetch_binance(symbols: list[str], days: int,
     if _fresh(path, max_age_sec):
         return _read_cache(path)
 
-    limit = min(days + 40, 1000)
+    # Binance 는 한 번에 최대 1000 봉만 준다. days 가 그보다 크면
+    # startTime 을 밀어가며 여러 번 받아 이어붙여야 한다.
+    # (이게 없으면 몇 년을 요청해도 조용히 마지막 1000일만 들어온다.)
+    need_ms = int((days + 40) * 86_400_000)
+    start0 = int(time.time() * 1000) - need_ms
     series: dict[str, pd.Series] = {}
     for sym in symbols:
-        try:
-            resp = requests.get(BINANCE, timeout=20, params={
-                "symbol": sym, "interval": "1d", "limit": limit})
-            resp.raise_for_status()
-            rows = resp.json()
-        except (requests.RequestException, ValueError):
-            continue
+        rows: list = []
+        start = start0
+        while True:
+            try:
+                resp = requests.get(BINANCE, timeout=20, params={
+                    "symbol": sym, "interval": "1d",
+                    "startTime": start, "limit": 1000})
+                resp.raise_for_status()
+                page = resp.json()
+            except (requests.RequestException, ValueError):
+                break
+            if not page:
+                break
+            rows.extend(page)
+            if len(page) < 1000:               # 마지막 페이지
+                break
+            start = page[-1][0] + 86_400_000   # 다음 날부터
+            time.sleep(0.12)                   # 공개 API 예절
         if not rows:
             continue
         idx = pd.to_datetime([r[0] for r in rows], unit="ms").normalize()
-        series[sym] = pd.Series([float(r[4]) for r in rows], index=idx)
-        time.sleep(0.12)                       # 공개 API 예절
+        s = pd.Series([float(r[4]) for r in rows], index=idx)
+        series[sym] = s[~s.index.duplicated(keep="last")]
+        time.sleep(0.12)
 
     if not series:
         raise RuntimeError("Binance 종가를 하나도 받지 못했습니다.")
