@@ -153,9 +153,10 @@ def main() -> int:
     skew = np.zeros(50)
     skew[0] = 0.88
     skew[1:30] = 0.12 / 29
-    capped = S.cap_weights(skew, cap=0.15, floor=0.005)
-    good = capped.max() <= 0.15 + 1e-9 and abs(capped.sum() - 1) < 1e-9
-    results.append((PASS if good else FAIL, "종목 상한 적용",
+    cap_now = S.MAX_WEIGHT
+    capped = S.cap_weights(skew, cap=cap_now, floor=S.MIN_WEIGHT)
+    good = capped.max() <= cap_now + 1e-9 and abs(capped.sum() - 1) < 1e-9
+    results.append((PASS if good else FAIL, f"종목 상한 적용 ({cap_now:.0%})",
                     f"88% → {capped.max():.2%}, {int((capped>0).sum())}종목"))
 
     # 12. 상한 먼저·하한 나중 (순서가 뒤바뀌면 종목이 전멸한다)
@@ -164,17 +165,22 @@ def main() -> int:
                     f"{int((capped>0).sum())}종목 남음 (20개 이상이어야 함)"))
 
     # 13. 실행 불가능한 상한은 조용히 넘기지 않고 예외
-    expect_raise("상한 infeasible 차단", ValueError,
-                 S.cap_weights, np.array([0.8, 0.1, 0.06, 0.03, 0.01]),
-                 cap=0.15, floor=0.005)
+    #     상한 c 를 지키려면 종목이 ⌈1/c⌉ 개 필요하다. 현재 하드 한도
+    #     (config.MAX_POSITION_PCT) 로도 못 채우는 종목 수를 만들어 검사한다.
+    hard = C.MAX_POSITION_PCT / 100
+    n_short = max(2, int(np.ceil(1 / hard)) - 2)      # 하드 한도로도 부족한 개수
+    tight = np.full(n_short, 1.0 / n_short)
+    expect_raise(f"상한 infeasible 차단 ({n_short}종목)", ValueError,
+                 S.cap_weights, tight, cap=hard * 0.8, floor=0.005)
 
     # 14. 시장 상한
     w_mkt = pd.Series({"005930": 0.5, "000660": 0.3, "NVDA": 0.15,
                        "BTCUSDT": 0.05})
-    out = S.cap_market_weights(w_mkt, max_market_pct=40.0, cap=0.15)
+    mc = C.MAX_MARKET_PCT
+    out = S.cap_market_weights(w_mkt, max_market_pct=mc, cap=S.MAX_WEIGHT)
     agg = out.groupby([C.market_of(s) for s in out.index]).sum()
-    good = (agg <= 0.40 + 1e-9).all() and abs(out.sum() - 1) < 1e-9
-    results.append((PASS if good else FAIL, "시장 상한 40%",
+    good = (agg <= mc / 100 + 1e-9).all() and abs(out.sum() - 1) < 1e-9
+    results.append((PASS if good else FAIL, f"시장 상한 {mc:.0f}%",
                     "kospi 80% → " + ", ".join(f"{k} {v:.0%}" for k, v in agg.items())))
 
     # 15. 괴리율 정의 (리밸런싱하면 0으로 초기화)

@@ -30,3 +30,5 @@ cache/
 !reports/
 !reports/**/*.png
 !reports/**/*.md
+!reports/**/*.csv
+!reports/*.csv
