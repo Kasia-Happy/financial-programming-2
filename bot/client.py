@@ -63,6 +63,12 @@ class SSUClient:
         self._rules_cache: dict | None = None
         self._rules_at: float = 0.0
 
+    def _scrub(self, text: str) -> str:
+        """예외·로그 문자열에서 토큰을 지운다. 토큰은 어디로도 새지 않는다."""
+        if self._token and self._token in text:
+            text = text.replace(self._token, "<TOKEN>")
+        return text
+
     # ── 레이트리밋 ────────────────────────────────────────────
     def _throttle(self) -> None:
         now = time.monotonic()
@@ -82,8 +88,11 @@ class SSUClient:
             resp = self._sess.request(method, url, json=payload,
                                       timeout=C.HTTP_TIMEOUT_SEC)
         except requests.RequestException as exc:
-            journal.write("error", endpoint=path, error=type(exc).__name__)
-            raise SSUError(f"{path} 통신 실패: {type(exc).__name__}") from exc
+            journal.write("error", endpoint=path, error=type(exc).__name__,
+                          detail=self._scrub(str(exc))[:300])
+            raise SSUError(
+                f"{path} 통신 실패: {type(exc).__name__}: "
+                f"{self._scrub(str(exc))[:200]}") from None
 
         if resp.status_code == 429 and _retry:
             wait = float(resp.headers.get("Retry-After", 1)) + 0.2

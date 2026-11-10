@@ -24,3 +24,4 @@ __pycache__/
 logs/*.jsonl
 logs/*.log
 state/*.json
+cache/

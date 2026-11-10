@@ -25,8 +25,10 @@ for _candidate in (
     if _candidate.is_file():
         load_dotenv(_candidate, override=False)
 
-BASE_URL = os.getenv("SSU_BASE_URL", "https://ssu-vibecoding-pnl-rank.lazzy.chat")
-TOKEN = os.getenv("lazzy_token") or os.getenv("SSU_PAPER_TOKEN") or ""
+BASE_URL = os.getenv("SSU_BASE_URL", "https://ssu-vibecoding-pnl-rank.lazzy.chat").strip()
+# .strip() 필수: .env 가 CRLF 로 저장되면 토큰 끝에 \r 이 붙어 HTTP 헤더가
+# InvalidHeader 로 거부되고, 그 예외 메시지에 토큰이 그대로 실려 로그로 샌다.
+TOKEN = (os.getenv("lazzy_token") or os.getenv("SSU_PAPER_TOKEN") or "").strip()
 
 # ─────────────────────────────────────────────────────────────
 # 비용 (get_rules 2026-11-06 확인값, bps = 0.01%)
