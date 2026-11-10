@@ -47,20 +47,50 @@
 
 ```
 bot/
-  config.py    리스크 한도·비용 상수 (여기 값을 넘기는 주문은 코드에서 막힌다)
+  config.py    리스크 한도·비용 상수·일정 (여기 값을 넘기는 주문은 코드에서 막힌다)
   client.py    서버 클라이언트 — 사전점검·리스크강제·레이트리밋·거부처리
   universe.py  서버 종목코드 ↔ 외부 데이터 티커 매핑 (선물은 GMV에서 제외)
   data.py      과거 가격 수집 (yfinance·Binance), 원화 환산 패널, 캐시
   strategy.py  GMV + 괴리율 리밸런싱 (노트북에서 이식), 비중 상한, 주문표
+  snapshot.py  일별 NAV·순위 기록 (서버가 과거 시계열을 안 주므로 직접 쌓음)
+  charts.py    리포트 차트 (NAV+낙폭, 순위표, 순위추이, 비용추이)
   journal.py   거래 기록 (JSONL) — 회고 자료
 scripts/
   status.py       읽기 전용 상태 점검 (돈 안 움직임)
-  selftest.py     가드·전략 검증 29개 (안전장치가 실제로 막는지)
+  selftest.py     가드·전략 검증 (안전장치가 실제로 막는지)
   verify_costs.py 비용 상수 ↔ 서버 get_rules 대조
   plan.py         오늘의 GMV 목표 비중·주문표 (드라이런)
+  report.py       데일리/위클리 리포트 생성 (.md + .png)
 logs/          거래·판단·거부 기록 (gitignore)
 cache/         과거 가격 캐시 (gitignore)
+state/         NAV·순위 기록 (gitignore — 잔고 포함)
+reports/       생성된 리포트 (저장소에 남김)
 ```
+
+### 투자금·일정 (2026-11-10 공지 반영)
+
+- 투자금 **100억 KRW** (1억에서 변경, 전 팀 계좌 초기화)
+- 매매 마감 **11/30 자정** · 발표 12/1, 12/8
+- 코드는 `get_rules()["startKrw"]` / `get_portfolio()["equityKrw"]` 를 **서버에서 읽는다.**
+  `config.START_KRW` 는 서버를 못 읽을 때의 폴백일 뿐이라, 투자금이 또 바뀌어도 자동 반영된다.
+- 리스크 한도는 전부 **비율** 기준이므로 자본 규모가 바뀌어도 그대로 유효하다.
+- 최소 주문 금액만 자본에 비례한다 (`config.min_order_krw`, NAV의 0.05%,
+  바닥값 50만원) — 100억에서는 500만원. 고정 50만원이면 비중 0.005% 주문이
+  수백 건 나온다.
+
+### 리포트
+
+```bash
+.venv/bin/python scripts/report.py            # 데일리
+.venv/bin/python scripts/report.py --weekly   # 위클리
+```
+
+`reports/daily/`, `reports/weekly/` 에 `.md` + `.png` 로 저장된다.
+
+- 데일리: 계좌 / 어제 체결·거부·환전 / **비용 집계** / 포지션 / 리스크 한도 / 다음 행동
+- 위클리: 주간 성과·23팀 전체 순위표·상위 5팀 포지션(서버가 공개하는 시장 단위까지)·전략 점검
+- 서버에 `/api/history` 가 없어서(404) 전일 대비·추이는 `state/` 에 직접 쌓은
+  스냅샷으로 계산한다. 하루라도 안 찍으면 그날 비교가 빈다.
 
 ### 전략: GMV + 괴리율 리밸런싱
 

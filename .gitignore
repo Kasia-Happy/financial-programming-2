@@ -23,5 +23,10 @@ __pycache__/
 # 봇 런타임 산출물
 logs/*.jsonl
 logs/*.log
-state/*.json
+state/*.jsonl
 cache/
+
+# 리포트는 저장소에 남긴다 (위 *.png / *.csv 규칙보다 우선)
+!reports/
+!reports/**/*.png
+!reports/**/*.md

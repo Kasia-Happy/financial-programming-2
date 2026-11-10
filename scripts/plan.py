@@ -77,7 +77,9 @@ def main() -> int:
     integer = {a.symbol: a.integer_shares for a in assets}
     orders = strategy.plan_orders(w, holdings, nav, px_last, integer)
 
-    print(f"\n주문표 (총자산 {nav:,.0f}원, 최소주문 {strategy.MIN_ORDER_KRW:,.0f}원)")
+    min_ord = C.min_order_krw(nav)
+    print(f"\n주문표 (총자산 {nav:,.0f}원, 최소주문 {min_ord:,.0f}원 "
+          f"= NAV의 {C.MIN_ORDER_BPS/100:.2f}%)")
     if orders.empty:
         print("  낼 주문이 없습니다.")
     else:

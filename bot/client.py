@@ -188,9 +188,20 @@ class SSUClient:
     # ── 리스크 한도 강제 ──────────────────────────────────────
     def check_risk(self, symbol: str, notional_krw: float,
                    leverage: int = 1, margin_mode: str = "isolated") -> None:
-        """config.py 한도를 넘으면 서버에 보내지 않고 막는다."""
+        """config.py 한도를 넘으면 서버에 보내지 않고 막는다.
+
+        총자산은 **서버 값**(equityKrw)을 쓴다 — config.START_KRW 는 서버를
+        못 읽을 때의 폴백일 뿐이다. 투자금이 1억→100억으로 바뀌어도
+        비중 계산은 서버 값으로 자동 따라간다.
+        """
         pf = self.get_portfolio()
-        equity = float(pf.get("equityKrw") or 0) or C.START_KRW
+        equity = float(pf.get("equityKrw") or 0)
+        if equity <= 0:
+            equity = float(pf.get("startKrw") or 0) or float(C.START_KRW)
+
+        if C.past_deadline():
+            raise RiskLimitError(
+                f"매매 마감({C.TRADING_DEADLINE_KST})이 지났습니다. 신규 진입 중단.")
 
         if float(pf.get("returnPct") or 0) <= -C.MAX_DRAWDOWN_PCT:
             raise RiskLimitError(

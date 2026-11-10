@@ -15,7 +15,7 @@ from bot import config as C
 from bot.client import (SSUClient, RiskLimitError, MarketClosedError,
                         SSUError)
 
-PASS, FAIL = "PASS", "FAIL"
+PASS, FAIL, SKIP = "PASS", "FAIL", "SKIP"
 results: list[tuple[str, str, str]] = []
 
 
@@ -41,6 +41,20 @@ def expect_ok(name: str, fn, *args, **kwargs) -> None:
 def main() -> int:
     cli = SSUClient()
 
+    # 서버 계좌 접근이 되는지 먼저 확인한다. 토큰이 무효하면(계좌 리셋·재발급)
+    # 계좌 관련 검사만 건너뛰고, 토큰과 무관한 전략·수학 검사는 계속 돌린다.
+    online = True
+    equity = float(C.START_KRW)
+    try:
+        pf = cli.get_portfolio()
+        equity = float(pf["equityKrw"])
+        results.append((PASS, "서버 계좌 접근", f"총자산 {equity:,.0f} KRW "
+                        f"(config 폴백 {C.START_KRW:,.0f})"))
+    except Exception as e:  # noqa: BLE001
+        online = False
+        results.append((SKIP, "서버 계좌 접근",
+                        f"{type(e).__name__}: {str(e)[:60]} → 계좌 검사 건너뜀"))
+
     # 1. 종목 코드 → 시장 판별
     cases = [("005930", "kospi"), ("NVDA", "nasdaq"), ("BTCUSDT", "crypto"),
              ("BTCUSDT.P", "futures"), ("BTCUSD_PERP", "futures")]
@@ -49,7 +63,7 @@ def main() -> int:
         results.append((PASS if got == want else FAIL,
                         f"시장판별 {sym}", f"{got} (기대 {want})"))
 
-    # 2. confirmed 없이 주문 → 막혀야 한다
+    # 2. confirmed 없이 주문 → 막혀야 한다 (서버 호출 전에 막히므로 토큰 무관)
     expect_raise("confirmed 없는 현물주문 차단", RiskLimitError,
                  cli.place_order, "BTCUSDT", "buy", 0.001)
     expect_raise("confirmed 없는 선물주문 차단", RiskLimitError,
@@ -59,23 +73,33 @@ def main() -> int:
     expect_raise("confirmed 없는 증거금이체 차단", RiskLimitError,
                  cli.futures_transfer, "USDT", "in", 100)
 
-    # 3. 비중 한도 — 총자산의 99%를 한 종목에 → 막혀야 한다
-    expect_raise("한 종목 비중 한도", RiskLimitError,
-                 cli.check_risk, "BTCUSDT", C.START_KRW * 0.99)
+    # 3~6. 리스크 한도 (서버 총자산 기준 — 투자금이 바뀌어도 따라가야 한다)
+    if online:
+        expect_raise("한 종목 비중 한도", RiskLimitError,
+                     cli.check_risk, "BTCUSDT", equity * 0.99)
+        expect_raise("레버리지 한도", RiskLimitError,
+                     cli.check_risk, "BTCUSDT.P", equity * 0.01, 50)
+        expect_raise("교차 증거금 금지", RiskLimitError,
+                     cli.check_risk, "BTCUSDT.P", equity * 0.01, 2, "cross")
+        expect_ok("한도 내 현물 통과", cli.check_risk, "BTCUSDT", equity * 0.05)
+        expect_ok("한도 내 선물(isolated 2배) 통과", cli.check_risk,
+                  "BTCUSDT.P", equity * 0.05, 2, "isolated")
+    else:
+        for n in ("한 종목 비중 한도", "레버리지 한도", "교차 증거금 금지",
+                  "한도 내 현물 통과", "한도 내 선물(isolated 2배) 통과"):
+            results.append((SKIP, n, "계좌 조회 불가"))
 
-    # 4. 레버리지 한도
-    expect_raise("레버리지 한도", RiskLimitError,
-                 cli.check_risk, "BTCUSDT.P", C.START_KRW * 0.01, 50)
+    # 6-1. 마감 일정
+    left = C.days_left()
+    results.append((PASS if left > 0 else FAIL, "매매 마감까지",
+                    f"{left:.1f}일 남음 (마감 {C.TRADING_DEADLINE_KST[:10]} 00:00 KST)"))
 
-    # 5. 교차 증거금 금지
-    expect_raise("교차 증거금 금지", RiskLimitError,
-                 cli.check_risk, "BTCUSDT.P", C.START_KRW * 0.01, 2, "cross")
-
-    # 6. 한도 안쪽은 통과해야 한다
-    expect_ok("한도 내 현물 통과", cli.check_risk, "BTCUSDT",
-              C.START_KRW * 0.05)
-    expect_ok("한도 내 선물(isolated 2배) 통과", cli.check_risk,
-              "BTCUSDT.P", C.START_KRW * 0.05, 2, "isolated")
+    # 6-2. 최소 주문 금액이 자본에 비례하는가
+    m1 = C.min_order_krw(100_000_000)
+    m2 = C.min_order_krw(10_000_000_000)
+    good = m2 > m1 and abs(m2 - 10_000_000_000 * C.MIN_ORDER_BPS / 10_000) < 1
+    results.append((PASS if good else FAIL, "최소주문 자본 비례",
+                    f"1억→{m1:,.0f}원, 100억→{m2:,.0f}원"))
 
     # 7. 닫힌 장 감지 (코스피가 닫혀 있을 때만 유효)
     rules = cli.get_rules()
@@ -90,8 +114,11 @@ def main() -> int:
         be = cli.breakeven_bps(sym)
         results.append((PASS, f"손익분기 {sym}", f"{be:.0f}bps = {be/100:.2f}%"))
 
-    # 9. 환전 견적 (dryRun — 돈 안 움직임)
-    expect_ok("환전 견적 dryRun", cli.convert_quote, "KRW", "USDT", 1_000_000)
+    # 9. 환전 견적 (dryRun — 돈 안 움직임, 계좌 인증 필요)
+    if online:
+        expect_ok("환전 견적 dryRun", cli.convert_quote, "KRW", "USDT", 1_000_000)
+    else:
+        results.append((SKIP, "환전 견적 dryRun", "계좌 조회 불가"))
 
     # ── 전략 (bot/strategy.py) ──
     import numpy as np
@@ -162,7 +189,7 @@ def main() -> int:
     orders = S.plan_orders(tw, pd.Series(dtype=float), 1_000_000,
                            pd.Series({"005930": 70_000, "000660": 300_000}),
                            {"005930": True, "000660": True},
-                           min_order_krw=500_000)
+                           min_order_krw=500_000)   # 명시 → 자본 비례 계산 우회
     good = len(orders) == 2 and (orders.qty == orders.qty.astype(int)).all()
     results.append((PASS if good else FAIL, "주문표 정수주·최소금액",
                     f"{len(orders)}건, 수량 {list(orders.qty)}"))
@@ -176,11 +203,16 @@ def main() -> int:
     # ── 출력 ──
     width = max(len(n) for _, n, _ in results)
     npass = sum(1 for s, _, _ in results if s == PASS)
+    nskip = sum(1 for s, _, _ in results if s == SKIP)
+    nfail = sum(1 for s, _, _ in results if s == FAIL)
     for status, name, detail in results:
-        mark = "✓" if status == PASS else "✗"
+        mark = {PASS: "✓", FAIL: "✗", SKIP: "–"}[status]
         print(f"{mark} {name:<{width}}  {detail}")
-    print(f"\n{npass}/{len(results)} 통과")
-    return 0 if npass == len(results) else 1
+    tail = f" (건너뜀 {nskip})" if nskip else ""
+    print(f"\n{npass}/{npass + nfail} 통과{tail}")
+    if nskip:
+        print("※ 건너뛴 항목은 서버 계좌 접근이 필요합니다 (토큰 확인)")
+    return 0 if nfail == 0 else 1
 
 
 if __name__ == "__main__":

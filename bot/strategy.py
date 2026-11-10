@@ -32,7 +32,8 @@ MAX_WEIGHT = C.MAX_POSITION_PCT / 100     # 종목별 비중 상한 (리스크 �
 
 # 보완점 4-2: 목표 금액이 1주 가격보다 작은 종목이 많아 관리 부담만 늘린다.
 MIN_WEIGHT = 0.005          # 0.5% 미만 비중은 버리고 재정규화
-MIN_ORDER_KRW = 500_000     # 50만원 미만 주문은 내지 않는다
+# 최소 주문 금액은 config.min_order_krw(nav) 로 총자산에 비례해 계산한다
+# (자본이 1억 → 100억으로 바뀌면 고정 50만원은 비중 0.005% 로 무의미해진다)
 
 
 def estimate_cov(Rw: np.ndarray) -> tuple[np.ndarray, float]:
@@ -289,7 +290,7 @@ def gap(virtual_nav: float, actual_nav: float,
 
 def plan_orders(target_w: pd.Series, holdings_krw: pd.Series, nav_krw: float,
                 prices_krw: pd.Series, integer: dict[str, bool],
-                min_order_krw: float = MIN_ORDER_KRW) -> pd.DataFrame:
+                min_order_krw: float | None = None) -> pd.DataFrame:
     """목표 비중 → 주문표. 같은 통화 안에서 처리할 수 있는 것부터 낸다.
 
     target_w   : 종목 → 목표 비중
@@ -297,7 +298,10 @@ def plan_orders(target_w: pd.Series, holdings_krw: pd.Series, nav_krw: float,
     nav_krw    : 총자산 (원화)
     prices_krw : 종목 → 1주 가격 (원화 환산)
     integer    : 종목 → 정수 주 제약 여부
+    min_order_krw: 생략하면 총자산에 비례해 계산 (config.min_order_krw)
     """
+    if min_order_krw is None:
+        min_order_krw = C.min_order_krw(nav_krw)
     syms = sorted(set(target_w.index) | set(holdings_krw.index))
     rows = []
     for s in syms:

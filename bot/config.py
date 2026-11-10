@@ -61,7 +61,25 @@ def futures_roundtrip_bps() -> float:
 # ─────────────────────────────────────────────────────────────
 # 리스크 한도 — 넘으면 주문이 코드에서 막힌다
 # ─────────────────────────────────────────────────────────────
-START_KRW = 100_000_000
+# 시작 자본. **서버 값이 정답이다** — 하드코딩에 의존하지 말고
+# get_rules()["startKrw"] / get_portfolio()["equityKrw"] 를 우선 쓴다.
+# 이 값은 서버를 못 읽을 때의 폴백이고, 환경변수 SSU_START_KRW 로 덮을 수 있다.
+#
+# 2026-11-10 조교 공지: 투자금 1억 → **100억**, 매매 마감 11/30 자정, 발표 12/1·12/8.
+# 같은 날 서버 확인값은 아직 1억이었다(startKrw=100,000,000). 서버가 바뀌면
+# 코드 수정 없이 자동 반영된다 — 아래 폴백은 공지값(100억)으로 맞춰 둔다.
+START_KRW = int(os.getenv("SSU_START_KRW", 10_000_000_000))
+
+# 최소 주문 금액은 자본 규모에 비례해야 한다. 자본이 100배가 되면
+# 50만원 주문은 비중 0.005% 로 무의미해지고 주문 수만 폭증한다.
+MIN_ORDER_BPS = 5          # 총자산의 0.05%
+MIN_ORDER_FLOOR_KRW = 500_000
+
+
+def min_order_krw(nav_krw: float | None = None) -> float:
+    """총자산에 비례한 최소 주문 금액 (바닥값 50만원)."""
+    nav = float(nav_krw) if nav_krw else float(START_KRW)
+    return max(MIN_ORDER_FLOOR_KRW, nav * MIN_ORDER_BPS / 10_000)
 
 # 한 종목에 넣을 수 있는 최대 비중 (총자산 대비)
 MAX_POSITION_PCT = 15.0
@@ -86,6 +104,30 @@ MAX_ORDERS_PER_DAY = 40
 
 # 기대 수익이 왕복 비용의 이 배수보다 작으면 진입하지 않는다.
 MIN_EDGE_MULTIPLE = 2.0
+
+# ─────────────────────────────────────────────────────────────
+# 일정 (2026-11-10 조교 공지)
+# ─────────────────────────────────────────────────────────────
+# 매매 마감 11/30 자정 = 12/01 00:00 KST. 그 이후 신규 진입을 하지 않는다.
+TRADING_DEADLINE_KST = "2026-12-01T00:00:00+09:00"
+PRESENTATION_DATES = ("2026-12-01", "2026-12-08")
+
+
+def deadline_dt():
+    """매매 마감 시각 (datetime, KST)."""
+    from datetime import datetime
+    return datetime.fromisoformat(TRADING_DEADLINE_KST)
+
+
+def days_left() -> float:
+    """매매 마감까지 남은 일수 (음수면 마감 지남)."""
+    from datetime import datetime, timezone, timedelta
+    now = datetime.now(timezone(timedelta(hours=9)))
+    return (deadline_dt() - now).total_seconds() / 86400
+
+
+def past_deadline() -> bool:
+    return days_left() <= 0
 
 # ─────────────────────────────────────────────────────────────
 # 운영 상수
