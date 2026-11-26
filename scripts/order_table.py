@@ -27,15 +27,11 @@ def main() -> int:
 
     pf = cli.get_portfolio()
     nav = float(pf["equityKrw"])
-    hold = pd.Series(dtype=float)
-    for p in pf.get("positions", []):
-        s = str(p.get("symbol", "")).upper()
-        v = p.get("valueKrw") or p.get("marketValueKrw") or 0
-        if s:
-            hold[s] = float(v)
+    hold = strategy.holdings_krw(pf, quotes)
 
     integer = {a.symbol: a.integer_shares for a in assets}
-    o = strategy.plan_orders(w, hold, nav, px.iloc[-1], integer)
+    px_now = strategy.quote_prices_krw(pf, quotes).combine_first(px.iloc[-1])
+    o = strategy.plan_orders(w, hold, nav, px_now, integer)
     if o.empty:
         print("낼 주문이 없습니다.")
         return 0

@@ -206,6 +206,25 @@ def main() -> int:
     results.append((PASS if tiny.empty else FAIL, "최소금액 미만 주문 제외",
                     f"{len(tiny)}건 (0이어야 함)"))
 
+    # 보유 평가액 — 서버 positions 에는 valueKrw 가 없다 (qty·avg_price 만)
+    pf_fake = {"rate": {"KRW": 1, "USD": 1400, "USDT": 1390},
+               "positions": [{"symbol": "005930", "qty": 10, "avg_price": 60_000},
+                             {"symbol": "NVDA", "qty": 2, "avg_price": 100}]}
+    q_fake = [{"symbol": "005930", "price": 70_000}, {"symbol": "NVDA", "price": 150}]
+    h = S.holdings_krw(pf_fake, q_fake)
+    good = abs(h["005930"] - 700_000) < 1e-6 and abs(h["NVDA"] - 420_000) < 1e-6
+    results.append((PASS if good else FAIL, "보유 평가액 = 수량×시세×환율",
+                    f"{dict(h.round(0))}"))
+    expect_raise("시세 없는 보유 종목은 중단", ValueError, S.holdings_krw,
+                 pf_fake, q_fake[:1])
+
+    # 보유가 반영되면 이미 목표만큼 가진 종목은 주문이 안 나와야 한다 (이중 매수 방지)
+    o_held = S.plan_orders(pd.Series({"005930": 1.0}), h[["005930"]], 700_000,
+                           pd.Series({"005930": 70_000}), {"005930": True},
+                           min_order_krw=1)
+    results.append((PASS if o_held.empty else FAIL, "보유분 반영 시 중복 매수 없음",
+                    f"{len(o_held)}건 (0이어야 함)"))
+
     # ── 출력 ──
     width = max(len(n) for _, n, _ in results)
     npass = sum(1 for s, _, _ in results if s == PASS)

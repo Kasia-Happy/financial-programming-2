@@ -345,3 +345,61 @@ def plan_orders(target_w: pd.Series, holdings_krw: pd.Series, nav_krw: float,
     # 매도 먼저 (현금을 만든 뒤 매수) → 같은 통화 안에서 해결되는 양을 늘린다
     return df.sort_values(["side", "notional_krw"],
                           ascending=[True, False]).reset_index(drop=True)
+
+
+_MARKET_CCY = {"kospi": "KRW", "nasdaq": "USD", "crypto": "USDT"}
+
+
+def holdings_krw(portfolio: dict, quotes: list[dict]) -> pd.Series:
+    """서버 포지션 → 종목별 현재 평가액(원화).
+
+    서버 `/api/me` 의 positions 행에는 평가액 필드가 없고 qty·avg_price 만 있다.
+    예전 코드는 `valueKrw` 를 읽다 0 으로 떨어져 보유 종목을 "없음"으로 보고
+    전액 신규 매수 주문표를 만들었다 (그대로 내면 이중 매수).
+    여기서는 qty × 현재 시세 × 통화 환율(portfolio["rate"], 평가용 mid)로 계산한다.
+
+    시세가 없는 보유 종목은 조용히 0 으로 두지 않고 예외를 던진다 —
+    0 으로 두면 그 종목을 목표 비중만큼 또 사게 된다.
+    """
+    price = {str(q.get("symbol", "")).upper(): q.get("price") for q in quotes}
+    rate = portfolio.get("rate") or {}
+    out: dict[str, float] = {}
+    missing: list[str] = []
+    for p in portfolio.get("positions") or []:
+        sym = str(p.get("symbol", "")).upper()
+        qty = float(p.get("qty") or 0)
+        if not sym or qty == 0:
+            continue
+        px = price.get(sym)
+        ccy = _MARKET_CCY.get(C.market_of(sym))
+        fx = rate.get(ccy) if ccy else None
+        if px is None or not fx:
+            missing.append(sym)
+            continue
+        out[sym] = out.get(sym, 0.0) + qty * float(px) * float(fx)
+    if missing:
+        raise ValueError(f"보유 종목 평가 불가 (시세·환율 없음): {missing} — "
+                         "0 으로 두면 이중 매수가 되므로 중단합니다")
+    return pd.Series(out, dtype=float)
+
+
+def quote_prices_krw(portfolio: dict, quotes: list[dict]) -> pd.Series:
+    """서버 현재 시세를 원화로 환산한 1주 가격 (holdings_krw 와 같은 기준).
+
+    주문 수량은 반드시 보유 평가와 **같은 가격**으로 나눠야 한다. 외부 데이터
+    (yfinance 종가) 가격으로 나누면 전량 매도 수량이 실제 보유 수량과 어긋나
+    더 팔거나(코스피는 공매도 불가 → 거부) 덜 팔게 된다.
+    """
+    rate = portfolio.get("rate") or {}
+    out: dict[str, float] = {}
+    for q in quotes:
+        sym = str(q.get("symbol", "")).upper()
+        px = q.get("price")
+        try:
+            ccy = _MARKET_CCY.get(C.market_of(sym))
+        except ValueError:
+            continue
+        fx = rate.get(ccy) if ccy else None
+        if px is not None and fx:
+            out[sym] = float(px) * float(fx)
+    return pd.Series(out, dtype=float)
