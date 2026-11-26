@@ -63,17 +63,15 @@ def main() -> int:
     if len(w) > args.top:
         print(f"  ... 외 {len(w)-args.top}종목")
 
-    # 주문표 (현재 전액 현금이면 전부 신규 매수)
+    # 주문표 — 현재 보유 평가액과의 차이만 주문한다
     pf = cli.get_portfolio()
     nav = float(pf["equityKrw"])
-    holdings = pd.Series(dtype=float)
-    for p in pf.get("positions", []):
-        sym = str(p.get("symbol", "")).upper()
-        val = p.get("valueKrw") or p.get("marketValueKrw") or 0
-        if sym:
-            holdings[sym] = float(val)
+    holdings = strategy.holdings_krw(pf, quotes)
+    print(f"현재 보유: {len(holdings)}종목 {holdings.sum():,.0f}원 "
+          f"(총자산의 {holdings.sum()/nav:.1%})")
 
-    px_last = px.iloc[-1]
+    # 보유 평가와 같은 서버 시세로 수량을 계산한다 (없으면 외부 종가로 보충)
+    px_last = strategy.quote_prices_krw(pf, quotes).combine_first(px.iloc[-1])
     integer = {a.symbol: a.integer_shares for a in assets}
     orders = strategy.plan_orders(w, holdings, nav, px_last, integer)
 
